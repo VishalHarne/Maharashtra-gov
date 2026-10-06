@@ -1,0 +1,11 @@
+node_modules/
+**/node_modules/
+**/dist/
+*.tsbuildinfo
+.expo/
+**/.expo/
+backend/data/store.json
+backend/data/store.json.tmp
+.env
+.env.*
+!.env.example

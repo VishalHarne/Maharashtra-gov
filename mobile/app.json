@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "ShalaSetu",
+    "slug": "shalasetu",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "jsEngine": "hermes",
+    "platforms": ["ios", "android", "web"]
+  }
+}
