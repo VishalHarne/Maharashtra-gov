@@ -6,7 +6,9 @@ type User = { id: string; username: string; name: string; role: Role; assignedSc
 type School = { id: string; name: string; block: string; district: string; udiseCode: string };
 type Notification = { id: string; schoolId: string; visitId: string; title: string; message: string; status: string; createdAt: string };
 type Action = { id: string; title: string; ownerName: string; ownerRole: string; expectedOutcome: string; dueDate: string; status: string };
-type Visit = { id: string; purpose: string; visitDate: string; checklist: string; reviewStatus?: string };
+type Visit = { id: string; purpose: string; visitDate: string; checklist: string; officerName: string; reviewStatus?: string };
+type ReportFinding = { id: string; category: string; description: string; severity: string; status: string };
+type ReportDetails = { visit: Visit; school: School; findings: ReportFinding[] };
 type Summary = { schoolCount: number; visitCount: number; openActions: number; overdueActions: number; blockedActions: number; awaitingVerification: number; unreadNotifications: number; notifications: Notification[]; recentVisits: Visit[]; actions: Action[] };
 type Session = { token: string; user: User; summary: Summary; schools: School[] };
 
@@ -41,6 +43,9 @@ function App() {
   const [finding, setFinding] = useState('');
   const [dueDate, setDueDate] = useState(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
   const [notificationId, setNotificationId] = useState('');
+  const [report, setReport] = useState<ReportDetails | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskOutcome, setTaskOutcome] = useState('');
   const [taskDueDate, setTaskDueDate] = useState(new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
@@ -79,9 +84,20 @@ function App() {
 
   useEffect(() => {
     if (!session || !notificationId) return;
-    api<{ owners: { id: string; name: string }[] }>(`/schools/${session.summary.notifications.find((item) => item.id === notificationId)?.schoolId}/action-owners`, session.token)
+    const selectedNotification = session.summary.notifications.find((item) => item.id === notificationId);
+    if (!selectedNotification) return;
+    let cancelled = false;
+    setReport(null);
+    setReportLoading(true);
+    setReportError('');
+    api<ReportDetails>(`/notifications/${notificationId}/report`, session.token)
+      .then((details) => { if (!cancelled) setReport(details); })
+      .catch((requestError: Error) => { if (!cancelled) setReportError(requestError.message); })
+      .finally(() => { if (!cancelled) setReportLoading(false); });
+    api<{ owners: { id: string; name: string }[] }>(`/schools/${selectedNotification.schoolId}/action-owners`, session.token)
       .then((result) => { setOwners(result.owners); setOwnerId(result.owners[0]?.id || ''); })
       .catch((requestError: Error) => setError(requestError.message));
+    return () => { cancelled = true; };
   }, [notificationId, session?.token]);
 
   const logout = async () => {
@@ -178,8 +194,39 @@ function App() {
       {visitForm && <View style={styles.formCard}><Text style={styles.cardTitle}>Submit visit report</Text><TextInput value={visitDate} onChangeText={setVisitDate} style={styles.input} placeholder="Visit date YYYY-MM-DD" /><TextInput value={purpose} onChangeText={setPurpose} style={styles.input} placeholder="Purpose" /><TextInput value={finding} onChangeText={setFinding} style={[styles.input, styles.multiline]} multiline placeholder="Describe the finding" /><TextInput value={dueDate} onChangeText={setDueDate} style={styles.input} placeholder="Action due date YYYY-MM-DD" /><Button title={busy ? 'Submitting...' : 'Submit and notify manager'} onPress={submitVisit} disabled={busy || !finding.trim()} /></View>}
     </View>}
 
-    {manager && <View style={styles.section}><Text style={styles.sectionTitle}>Visit review inbox</Text>{summary.notifications.length ? summary.notifications.slice().reverse().map((notice) => <View key={notice.id} style={styles.card}><Text style={styles.cardTitle}>{notice.title}</Text><Text style={styles.actionMeta}>{notice.message}</Text><Text style={styles.status}>{notice.status}</Text>{notice.status === 'Awaiting review' && <Button title="Review report" onPress={() => setNotificationId(notice.id)} />}</View>) : <Empty title="No reports awaiting review" />}
-      {notificationId ? <View style={styles.formCard}><Text style={styles.cardTitle}>Manager decision and follow-up</Text><Text style={styles.inputLabel}>Task title</Text><TextInput value={taskTitle} onChangeText={setTaskTitle} style={styles.input} placeholder="Describe the task" /><Text style={styles.inputLabel}>Expected outcome</Text><TextInput value={taskOutcome} onChangeText={setTaskOutcome} style={styles.input} placeholder="State the result to verify" /><Text style={styles.inputLabel}>Due date YYYY-MM-DD</Text><TextInput value={taskDueDate} onChangeText={setTaskDueDate} style={styles.input} /><Text style={styles.inputLabel}>Authorised school owner</Text>{owners.map((owner) => <Pressable key={owner.id} onPress={() => setOwnerId(owner.id)} style={[styles.ownerChoice, ownerId === owner.id && styles.ownerSelected]}><Text style={styles.ownerText}>{ownerId === owner.id ? '● ' : '○ '}{owner.name}</Text></Pressable>)}<Button title="Assign task" onPress={createTask} disabled={busy || !taskTitle.trim() || !taskOutcome.trim() || !ownerId} /><View style={styles.buttonRow}><Button title="Approve report" onPress={() => respond('Approve')} disabled={busy} /><Button title="Raise concern" variant="secondary" onPress={() => respond('Raise concern')} disabled={busy} /></View></View> : null}
+    {manager && <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Visit review inbox</Text>
+      {summary.notifications.length ? summary.notifications.slice().reverse().map((notice) => <View key={notice.id} style={styles.card}>
+        <Text style={styles.cardTitle}>{notice.title}</Text><Text style={styles.actionMeta}>{notice.message}</Text><Text style={styles.status}>{notice.status}</Text>
+        {notice.status === 'Awaiting review' && <Button title="Review report" onPress={() => setNotificationId(notice.id)} />}
+      </View>) : <Empty title="No reports awaiting review" />}
+      {notificationId ? <View style={styles.formCard}>
+        <Text style={styles.cardTitle}>Manager decision and follow-up</Text>
+        {reportLoading && <Text style={styles.subtle}>Loading submitted report...</Text>}
+        {reportError ? <Text style={styles.errorText}>{reportError}</Text> : null}
+        {report && <View style={styles.reportCard}>
+          <Text style={styles.reportSchool}>{report.school.name}</Text>
+          <Text style={styles.actionMeta}>Visit date: {report.visit.visitDate} · Submitted by {report.visit.officerName}</Text>
+          <Text style={styles.actionMeta}>Purpose: {report.visit.purpose}</Text>
+          <Text style={styles.actionMeta}>Checklist: {report.visit.checklist}</Text>
+          <Text style={styles.findingsTitle}>Findings ({report.findings.length})</Text>
+          {report.findings.length ? report.findings.map((item) => <View key={item.id} style={styles.reportFinding}>
+            <View style={styles.findingHeading}><Text style={styles.findingCategory}>{item.category}</Text><Text style={styles.findingSeverity}>{item.severity}</Text></View>
+            <Text style={styles.findingDescription}>{item.description}</Text>
+            <Text style={styles.actionMeta}>Status: {item.status}</Text>
+          </View>) : <Text style={styles.subtle}>No findings were recorded for this visit.</Text>}
+        </View>}
+        <Text style={styles.inputLabel}>Task title</Text><TextInput value={taskTitle} onChangeText={setTaskTitle} style={styles.input} placeholder="Describe the task" />
+        <Text style={styles.inputLabel}>Expected outcome</Text><TextInput value={taskOutcome} onChangeText={setTaskOutcome} style={styles.input} placeholder="State the result to verify" />
+        <Text style={styles.inputLabel}>Due date YYYY-MM-DD</Text><TextInput value={taskDueDate} onChangeText={setTaskDueDate} style={styles.input} />
+        <Text style={styles.inputLabel}>Authorised school owner</Text>
+        {owners.map((owner) => <Pressable key={owner.id} onPress={() => setOwnerId(owner.id)} style={[styles.ownerChoice, ownerId === owner.id && styles.ownerSelected]}><Text style={styles.ownerText}>{ownerId === owner.id ? '● ' : '○ '}{owner.name}</Text></Pressable>)}
+        <Button title="Assign task" onPress={createTask} disabled={busy || reportLoading || !report || !taskTitle.trim() || !taskOutcome.trim() || !ownerId} />
+        <View style={styles.buttonRow}>
+          <Button title="Approve report" onPress={() => respond('Approve')} disabled={busy || reportLoading || !report} />
+          <Button title="Raise concern" variant="secondary" onPress={() => respond('Raise concern')} disabled={busy || reportLoading || !report} />
+        </View>
+      </View> : null}
     </View>}
 
     {!manager && !kendra && <View style={styles.section}><Text style={styles.sectionTitle}>School visits</Text>{summary.recentVisits.map((visit) => <View key={visit.id} style={styles.card}><Text style={styles.cardTitle}>{visit.purpose}</Text><Text style={styles.actionMeta}>{visit.visitDate} · {visit.checklist}</Text><Text style={styles.status}>{visit.reviewStatus || 'Submitted'}</Text></View>)}</View>}
@@ -237,5 +284,13 @@ const styles = StyleSheet.create({
   ownerChoice: { padding: 10, borderWidth: 1, borderColor: '#e2e9e2', borderRadius: 4 },
   ownerSelected: { borderColor: '#6c9575', backgroundColor: '#eff6ef' },
   ownerText: { color: '#405547', fontSize: 11 },
+  reportCard: { marginVertical: 5, padding: 12, borderWidth: 1, borderColor: '#e2e9e2', borderRadius: 5, backgroundColor: '#fafcf9', gap: 7 },
+  reportSchool: { color: '#304b37', fontSize: 13, fontWeight: '700' },
+  findingsTitle: { marginTop: 5, color: '#405547', fontSize: 12, fontWeight: '700' },
+  reportFinding: { paddingTop: 9, borderTopWidth: 1, borderTopColor: '#e5ebe5', gap: 5 },
+  findingHeading: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  findingCategory: { flex: 1, color: '#35493b', fontSize: 11, fontWeight: '700' },
+  findingSeverity: { color: '#8b5b2d', fontSize: 10, fontWeight: '700' },
+  findingDescription: { color: '#56665a', fontSize: 11, lineHeight: 17 },
   empty: { padding: 18, alignItems: 'center' }
 });

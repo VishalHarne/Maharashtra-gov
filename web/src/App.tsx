@@ -6,6 +6,8 @@ type School = { id: string; udiseCode: string; name: string; district: string; b
 type Visit = { id: string; schoolId: string; officerName: string; visitDate: string; purpose: string; checklist: string; reviewStatus?: string; submittedAt: string };
 type Action = { id: string; schoolId: string; title: string; ownerName: string; ownerRole: string; expectedOutcome: string; dueDate: string; status: string; blockedReason?: string };
 type Notification = { id: string; schoolId: string; visitId: string; title: string; message: string; status: string; createdAt: string; responseNote?: string | null };
+type ReportFinding = { id: string; category: string; description: string; severity: string; status: string };
+type ReportDetails = { visit: Visit; school: School; findings: ReportFinding[] };
 type Summary = { role: Role; schoolCount: number; visitCount: number; openActions: number; overdueActions: number; blockedActions: number; awaitingVerification: number; unreadNotifications: number; notifications: Notification[]; recentVisits: Visit[]; actions: Action[] };
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
@@ -293,14 +295,61 @@ function VisitDialog({ schools, busy, onClose, onSubmit }: { schools: School[]; 
 function NotificationDialog({ notification, token, busy, onClose, onReview, onTask }: { notification: Notification; token: string; busy: boolean; onClose: () => void; onReview: (notification: Notification, decision: 'Approve' | 'Raise concern', note?: string) => void; onTask: (event: FormEvent<HTMLFormElement>, notification: Notification) => void }) {
   const [owners, setOwners] = useState<{ id: string; name: string }[]>([]);
   const [ownerError, setOwnerError] = useState('');
+  const [report, setReport] = useState<ReportDetails | null>(null);
+  const [reportLoading, setReportLoading] = useState(true);
+  const [reportError, setReportError] = useState('');
+
   useEffect(() => {
     request<{ owners: { id: string; name: string }[] }>(`/schools/${notification.schoolId}/action-owners`, token)
       .then((result) => setOwners(result.owners))
       .catch((requestError: Error) => setOwnerError(requestError.message));
   }, [notification.schoolId, token]);
-  return <div className="modal-backdrop" role="presentation"><section className="dialog review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-dialog-title"><div className="dialog-heading"><div><p className="eyebrow">MANAGER REVIEW</p><h2 id="review-dialog-title">Review visit report</h2></div><button className="close-btn" onClick={onClose} aria-label="Close">×</button></div><p className="dialog-intro">{notification.message}</p><div className="review-options"><button className="review-option approve-option" disabled={busy} onClick={() => onReview(notification, 'Approve')}><span>✓</span><strong>Approve report</strong><small>Record that the report was reviewed.</small></button><form className="review-option concern-option" onSubmit={(event) => { event.preventDefault(); const note = new FormData(event.currentTarget).get('note') as string; onReview(notification, 'Raise concern', note); }}><strong>Raise a concern</strong><textarea name="note" rows={2} placeholder="Explain what needs clarification" required /><button className="secondary-btn" disabled={busy}>Send concern</button></form></div>
-    <form className="task-form" onSubmit={(event) => onTask(event, notification)}><h3>Assign a follow-up task</h3><p>Task ownership is confirmed by you; no task is assigned automatically.</p><div className="form-grid"><label className="full-field">Task title<input name="title" required /></label><label className="full-field">Expected outcome<input name="expectedOutcome" required /></label><label>Authorised school owner<select name="ownerId" required disabled={!owners.length}><option value="">{owners.length ? 'Select headmaster' : 'No assigned headmaster available'}</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select>{ownerError && <small className="field-error">{ownerError}</small>}</label><label>Due date<input name="dueDate" type="date" min={new Date().toISOString().slice(0, 10)} required /></label></div><div className="dialog-actions"><button className="secondary-btn" type="button" onClick={onClose}>Close</button><button className="primary-btn" disabled={busy || !owners.length}>Create task</button></div></form>
-  </section></div>;
+  useEffect(() => {
+    let cancelled = false;
+    setReportLoading(true);
+    setReportError('');
+    request<ReportDetails & { notification: Notification }>(`/notifications/${notification.id}/report`, token)
+      .then((details) => { if (!cancelled) setReport(details); })
+      .catch((requestError: Error) => { if (!cancelled) setReportError(requestError.message); })
+      .finally(() => { if (!cancelled) setReportLoading(false); });
+    return () => { cancelled = true; };
+  }, [notification.id, token]);
+
+  return <div className="modal-backdrop" role="presentation">
+    <section className="dialog review-dialog" role="dialog" aria-modal="true" aria-labelledby="review-dialog-title">
+      <div className="dialog-heading"><div><p className="eyebrow">MANAGER REVIEW</p><h2 id="review-dialog-title">Review visit report</h2></div><button className="close-btn" onClick={onClose} aria-label="Close">×</button></div>
+      <p className="dialog-intro">{notification.message}</p>
+      {reportLoading && <p className="report-loading">Loading submitted report...</p>}
+      {reportError && <div className="report-error" role="alert">Could not load report details: {reportError}</div>}
+      {report && <ReportDetailsView report={report} />}
+      <div className="review-options">
+        <button className="review-option approve-option" disabled={busy || !report} onClick={() => onReview(notification, 'Approve')}><span>✓</span><strong>Approve report</strong><small>Record that the report was reviewed.</small></button>
+        <form className="review-option concern-option" onSubmit={(event) => { event.preventDefault(); const note = new FormData(event.currentTarget).get('note') as string; onReview(notification, 'Raise concern', note); }}><strong>Raise a concern</strong><textarea name="note" rows={2} placeholder="Explain what needs clarification" required /><button className="secondary-btn" disabled={busy || !report}>Send concern</button></form>
+      </div>
+      <form className="task-form" onSubmit={(event) => onTask(event, notification)}><h3>Assign a follow-up task</h3><p>Task ownership is confirmed by you; no task is assigned automatically.</p><div className="form-grid"><label className="full-field">Task title<input name="title" required /></label><label className="full-field">Expected outcome<input name="expectedOutcome" required /></label><label>Authorised school owner<select name="ownerId" required disabled={!owners.length}><option value="">{owners.length ? 'Select headmaster' : 'No assigned headmaster available'}</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select>{ownerError && <small className="field-error">{ownerError}</small>}</label><label>Due date<input name="dueDate" type="date" min={new Date().toISOString().slice(0, 10)} required /></label></div><div className="dialog-actions"><button className="secondary-btn" type="button" onClick={onClose}>Close</button><button className="primary-btn" disabled={busy || !owners.length || !report}>Create task</button></div></form>
+    </section>
+  </div>;
+}
+
+function ReportDetailsView({ report }: { report: ReportDetails }) {
+  return <section className="submitted-report" aria-label="Submitted visit details">
+    <div className="report-facts">
+      <div><span>School</span><strong>{report.school.name}</strong></div>
+      <div><span>Visit date</span><strong>{dateLabel(report.visit.visitDate)}</strong></div>
+      <div><span>Reported by</span><strong>{report.visit.officerName}</strong></div>
+      <div><span>Purpose</span><strong>{report.visit.purpose}</strong></div>
+      <div><span>Checklist</span><strong>{report.visit.checklist}</strong></div>
+      <div><span>Submitted</span><strong>{dateLabel(report.visit.submittedAt)}</strong></div>
+    </div>
+    <div className="report-findings">
+      <h3>Submitted findings <span>{report.findings.length}</span></h3>
+      {report.findings.length ? report.findings.map((finding) => <article className="report-finding" key={finding.id}>
+        <div className="finding-heading"><strong>{finding.category}</strong><span className={`severity severity-${finding.severity.toLowerCase()}`}>{finding.severity}</span></div>
+        <p>{finding.description}</p>
+        <small>Status: {finding.status}</small>
+      </article>) : <p className="report-loading">This visit has no findings recorded.</p>}
+    </div>
+  </section>;
 }
 
 export default App;

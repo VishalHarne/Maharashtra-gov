@@ -301,6 +301,18 @@ app.get('/api/v1/notifications', requireAuth, requireRole('Gat Shikshan Adhikari
   res.json({ notifications: database.notifications.filter((item) => notificationIsAccessible(req.user, item)) });
 });
 
+app.get('/api/v1/notifications/:id/report', requireAuth, requireRole('Gat Shikshan Adhikari'), (req, res) => {
+  const notification = database.notifications.find((item) => item.id === req.params.id);
+  if (!notification || !notificationIsAccessible(req.user, notification)) {
+    return res.status(404).json({ error: 'Notification not found.' });
+  }
+  const visit = database.visits.find((item) => item.id === notification.visitId);
+  const school = database.schools.find((item) => item.id === notification.schoolId);
+  if (!visit || !school) return res.status(404).json({ error: 'Submitted visit report not found.' });
+  const reportFindings = database.findings.filter((item) => item.visitId === visit.id);
+  res.json({ notification, visit, school, findings: reportFindings });
+});
+
 app.post('/api/v1/notifications/:id/respond', requireAuth, requireRole('Gat Shikshan Adhikari'), (req, res) => {
   const { decision, note } = req.body || {};
   if (!['Approve', 'Raise concern'].includes(decision)) return res.status(400).json({ error: 'Decision must be Approve or Raise concern.' });
