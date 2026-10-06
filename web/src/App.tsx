@@ -10,7 +10,7 @@ type ReportFinding = { id: string; category: string; description: string; severi
 type ReportDetails = { visit: Visit; school: School; findings: ReportFinding[] };
 type Summary = { role: Role; schoolCount: number; visitCount: number; openActions: number; overdueActions: number; blockedActions: number; awaitingVerification: number; unreadNotifications: number; notifications: Notification[]; recentVisits: Visit[]; actions: Action[] };
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api/v1';
+const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000/api/v1' : '')).replace(/\/+$/, '');
 const demoAccounts = [
   { username: 'gsa.demo', label: 'Gat Shikshan Adhikari' },
   { username: 'kp.demo', label: 'Kendra Pramukh' },
@@ -19,6 +19,7 @@ const demoAccounts = [
 const demoPassword = 'Demo@123';
 
 async function request<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  if (!API_URL) throw new Error('API is not configured. Set VITE_API_URL to the deployed API base URL.');
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {

@@ -1,0 +1,49 @@
+image: node:22-bookworm
+
+stages:
+  - verify
+  - deploy
+
+variables:
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+
+cache:
+  key:
+    files:
+      - package-lock.json
+  paths:
+    - .npm/
+
+verify:
+  stage: verify
+  script:
+    - npm ci --prefer-offline
+    - node --check backend/src/server.js
+    - npm run build:web
+    - npx tsc --noEmit -p mobile/tsconfig.json
+
+pages:
+  stage: deploy
+  needs:
+    - verify
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - npm ci --prefer-offline
+    - |
+      if [ -n "${CI_PAGES_URL:-}" ]; then
+        export VITE_BASE_PATH="$(node -e 'const path = new URL(process.env.CI_PAGES_URL).pathname; process.stdout.write(path.endsWith("/") ? path : `${path}/`)')"
+      else
+        export VITE_BASE_PATH="/"
+      fi
+      if [ -z "${VITE_API_URL:-}" ]; then
+        echo "VITE_API_URL is unset; the static site will publish, but sign-in requires a separately hosted API."
+      fi
+      npm run build:web
+      mkdir -p public
+      cp -R web/dist/. public/
+  pages:
+    publish: public
+  artifacts:
+    paths:
+      - public

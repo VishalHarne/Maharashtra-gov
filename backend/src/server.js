@@ -2,12 +2,14 @@ import cors from 'cors';
 import express from 'express';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const dataFile = resolve(currentDir, '../data/store.json');
 const app = express();
+const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 4000);
 const allowedOrigins = (process.env.WEB_ORIGIN || 'http://localhost:5173').split(',').map((origin) => origin.trim());
 const isLocalDevelopmentOrigin = (origin) => {
@@ -373,8 +375,13 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: 'Unexpected API error.' });
 });
 
-app.listen(port, () => {
-  console.log(`ShalaSetu API listening on http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`ShalaSetu API listening on ${host}:${port}`);
+  console.log(`Local API URL: http://localhost:${port}/api/v1`);
+  const ipv4Addresses = Object.values(networkInterfaces()).flatMap((addresses) => addresses || [])
+    .filter((address) => (address.family === 'IPv4' || address.family === 4) && !address.internal)
+    .map((address) => `http://${address.address}:${port}/api/v1`);
+  console.log(`LAN API URLs: ${ipv4Addresses.join(', ') || 'No active IPv4 address found'}`);
   console.log(`JSON data store: ${dataFile}`);
   console.log('Demo data is synthetic and stored locally.');
 });

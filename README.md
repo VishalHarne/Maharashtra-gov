@@ -16,6 +16,29 @@ Open `http://localhost:5173`. The API listens at `http://localhost:4000`. On its
 
 For a physical Expo device, set `EXPO_PUBLIC_API_URL` to the API host reachable on your local network, for example `http://192.168.1.20:4000/api/v1`, then start the app with `npm run start:mobile`. To change the web API URL, set `VITE_API_URL` before running the web workspace. The API allows the web origin `http://localhost:5173` by default; configure `WEB_ORIGIN` if the web client uses a different origin.
 
+## GitLab CI and Pages
+
+The `.gitlab-ci.yml` pipeline checks the API syntax, builds the web client, type-checks mobile, and publishes the web build through GitLab Pages on the default branch. Vite's base path is derived from GitLab's `CI_PAGES_URL`, so project Pages URLs load their assets from the correct subpath.
+
+Pages hosts static files only; it cannot run this Express API. The API can keep running on this Windows machine for users on the same network. Its listener binds to `0.0.0.0:4000`; this machine's current Wi-Fi IPv4 is `192.168.1.4` (check `ipconfig` if it changes). Start it from the project root in a terminal that stays open:
+
+```powershell
+$env:HOST = '0.0.0.0'
+$env:PORT = '4000'
+$env:WEB_ORIGIN = 'http://192.168.1.4:5173'
+npm run start:api
+```
+
+Allow inbound TCP port `4000` on the Windows firewall's **Private** network profile only, and reserve this machine's LAN IP in the router if clients depend on a stable address. Other devices on the same Wi-Fi can use `http://192.168.1.4:4000/api/v1`. The machine must stay powered on and connected; its local JSON store is only as durable as this machine's disk and backups.
+
+For a same-LAN web client served over HTTP, set `VITE_API_URL` to `http://192.168.1.4:4000/api/v1` before starting/building the web app, and browse to `http://192.168.1.4:5173`.
+
+**Important:** GitLab Pages uses HTTPS, so browsers block its page from calling a plain-HTTP `http://192.168.1.4:4000` API as mixed content. Also, `192.168.1.4` is a private address that is not reachable from outside this LAN. To use the Pages website, expose this machine's API through an HTTPS endpoint (for example, a secured tunnel or HTTPS reverse proxy with a domain); then set GitLab CI/CD variable `VITE_API_URL` to that HTTPS API URL including `/api/v1`, and set the API's `WEB_ORIGIN` to the exact Pages origin shown in **Deploy > Pages**. Do not publish this demo API directly to the internet without replacing demo authentication and securing its data.
+
+Push to the default branch to run the pipeline and publish the static web app. If `VITE_API_URL` is unset, Pages still publishes, but sign-in displays a configuration error rather than trying to call `localhost` on each visitor's device.
+
+The included JSON-store API, demo accounts, and demo school assignments are POC-only and should not be exposed as a production governance system.
+
 ## Demo sign-in
 
 All demo accounts use password `Demo@123`:
