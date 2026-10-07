@@ -39,6 +39,13 @@ Push to the default branch to run the pipeline and publish the static web app. I
 
 The included JSON-store API, demo accounts, and demo school assignments are POC-only and should not be exposed as a production governance system.
 
+## GitHub Pages
+
+The `.github/workflows/pages.yml` workflow builds and deploys the static web app whenever `main` is updated. In the GitHub repository, open **Settings > Pages** and set the build source to **GitHub Actions**. The project site URL is `https://vishalharne.github.io/Maharashtra-gov/`.
+
+For sign-in, add a repository Actions variable named `VITE_API_URL` under **Settings > Secrets and variables > Actions > Variables**. Set it to an HTTPS API URL ending in `/api/v1`. GitHub Pages cannot call this PC's plain-HTTP `192.168.x.x` address; use an HTTPS tunnel/reverse proxy to the local API and configure its `WEB_ORIGIN` as `https://vishalharne.github.io`. The static site can deploy without this variable, but sign-in will show an API configuration message.
+
+ Push to the default branch to run the pipeline and publish the static web app. If `VITE_API_URL` is unset, sign-in displays a configuration error rather than trying to call `localhost` on each visitor's device.
 ## Demo sign-in
 
 All demo accounts use password `Demo@123`:
